@@ -1,0 +1,71 @@
+
+name: Build iDex unsigned IPA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-ipa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    runs-on: xcode-27
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 27.1 if available
+        shell: bash
+        run: |
+          if [ -d /Applications/Xcode_27.1.app/Contents/Developer ]; then
+            echo "DEVELOPER_DIR=/Applications/Xcode_27.1.app/Contents/Developer" >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify tools
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build unsigned physical-device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project iDex.xcodeproj \
+            -scheme iDex \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/iDexDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            clean build
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/iDexDerivedData/Build/Products/Release-iphoneos/iDex.app"
+          test -d "$APP"
+          test -f "$APP/iDex"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          /usr/bin/ditto "$APP" "$RUNNER_TEMP/ipa/Payload/iDex.app"
+          cd "$RUNNER_TEMP/ipa"
+          /usr/bin/zip -q -r -X "$GITHUB_WORKSPACE/iDex-unsigned.ipa" Payload
+          /usr/bin/unzip -t "$GITHUB_WORKSPACE/iDex-unsigned.ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: iDex-unsigned-ipa
+          path: iDex-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
